@@ -5,7 +5,7 @@ Built to project monthly cash flows on a Fannie Mae single-family loan pool and 
 
 ## What it does
 
-- Loads loan data from Fannie Mae's public single-family loan dataset, pooltalk (https://fanniemae.mbs-securities.com/fannie) 
+- Loads loan data from Fannie Mae's public single-family loan dataset, [Pooltalk](https://fanniemae.mbs-securities.com/fannie) 
 - Amortizes each loan individually with monthly default (CDR) and prepayment (PSA) assumptions
 - Aggregates loan-level cash flows, amortization schedules, into pool level totals
 - Runs cash flows through a three tranche sequential pay waterfall
