@@ -217,6 +217,16 @@ def tranche_build(agg_pool, senior_weight, mezz_weight, equity_weight):
         {"name": "equity", "notional": equity_weight * start_bal, "coupon": 0.0}
     ]
 
+def wal(tranche_sch, tranche_name):
+    total = 0 
+    weight = 0
+    for entry in tranche_sch:
+        month = entry["month"]
+        principal_t = entry[tranche_name]["principal"]
+        total = total + principal_t
+        weight = weight + (month * principal_t)
+    wal = (weight / total)/12
+    return wal
 
 #inputs needed for the different functions
 filename = "fannie.txt" 
@@ -241,12 +251,16 @@ tranches = tranche_build(agg_pool,senior_weight, mezz_weight, equity_weight)
 tranche_sch = waterfall(tranches, agg_pool)
 
 
+wal_s = wal(tranche_sch, "senior")
+wal_m = wal(tranche_sch, "mezz")
+wal_e = wal(tranche_sch, "equity")
+print(wal_s)
+print(wal_m)
+print(wal_e)
 
 
-
-
-for i in range (88, 95):
-    print(f"month: {tranche_sch[i]["month"]}")
-    print(f"senior: {tranche_sch[i]["senior"]["notional"]}")
-    print(f"mezz: {tranche_sch[i]["mezz"]["notional"]}")
+#for i in range (88, 95):
+ #   print(f"month: {tranche_sch[i]["month"]}")
+  #  print(f"senior: {tranche_sch[i]["senior"]["notional"]}")
+   # print(f"mezz: {tranche_sch[i]["mezz"]["notional"]}")
 
