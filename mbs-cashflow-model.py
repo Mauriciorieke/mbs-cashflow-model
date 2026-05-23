@@ -1,5 +1,35 @@
+"""
+MBS Cash Flow Model
+
+Projects monthly cash flows on a Fannie Mae single-family loan pool and
+allocates those cash flows across a three-tranche sequential pay waterfall
+(senior, mezzanine, equity).
+
+Inputs:
+    - Fannie Mae loan-level data file (pipe-delimited)
+    - Pool ID to filter on
+    - CDR (annual default rate), loss severity, recovery lag
+    - PSA speed for prepayment assumption
+    - Tranche weights and coupons
+
+Outputs:
+    - Loan-level amortization schedules
+    - Pool-level aggregated cash flow schedule
+    - Tranche-level cash flow schedule with interest, loss, principal, notional
+    - WAL by tranche
+"""
+
 import csv
 
+# pmt_loan() function calculates the payment for an amortized loan. Takes inputs of balance, annual rate, frequency, and term month.
+def pmt_loan(balance, annual_rate, freq, term_month):
+    freq_rate = annual_rate / freq
+    pmt = (freq_rate * balance) / (1 - (1 + freq_rate) ** -term_month)
+    
+    return pmt
+
+# psa() function takes month and PSA speed as inputs, and returns a CPR rate using the PSA prepayment model.
+# Standard: PSA 100 gives a 6% terminal CPR rate, ramped up linearly over 30 months. PSA speed changes the terminal rate.
 def psa(month, psa_speed):
     speed = psa_speed/100
     adj_cpr = 0.06 * speed
@@ -9,12 +39,10 @@ def psa(month, psa_speed):
         terminal_cpr  = adj_cpr
     return terminal_cpr
 
-def pmt_loan(balance, annual_rate, freq, term_month):
-    freq_rate = annual_rate / freq
-    pmt = (freq_rate * balance) / (1 - (1 + freq_rate) ** -term_month)
-    
-    return pmt
-
+# The amort_default() function creates a full amortization schedule for a loan, incorporating default and prepayment.
+# Returns a list of nested dictionaries representing the monthly schedule.
+# Every month the payment is recalculated to account for defaults and prepayments before solving for the new payment.
+# This function is called inside later functions.
 def amort_default(balance, annual_rate, freq, term_month, annual_cdr, loss_sev, recovery_lag, psa_speed):
     month_cdr = annual_cdr/freq
     month_rate = annual_rate / freq
@@ -56,6 +84,8 @@ def amort_default(balance, annual_rate, freq, term_month, annual_cdr, loss_sev, 
         
     return sch
 
+# pool_loader() function opens and reads the Fannie Mae loan-level data file.
+# Parses the text file delimited by "|" and returns a list of loans matching the pool_id.
 def pool_loader(filename, pool_id):
     pool = []
     with open(filename, 'r',newline = "") as file:
@@ -70,12 +100,16 @@ def pool_loader(filename, pool_id):
                          })
     return pool
 
+# amort_each() function loops through all the loans and calls amort_default() to create an amortization schedule for each loan.
+# Inputs are the model assumptions needed by amort_default(), plus the output from pool_loader().
 def amort_each(pool, freq, annual_cdr, loss_sev, recovery, psa_speed):
     pool_amort = []
     for loan in pool:
         pool_amort.append(amort_default(loan["balance"],loan["rate"], freq, loan["loan term"], annual_cdr, loss_sev, recovery, psa_speed))
     return pool_amort
 
+# The aggregate() function rolls up all loan-level schedules by month into one pool-level amortization schedule.
+# For each month it sums: beginning balance, interest, principal, default, ending balance, loss, recovery, prepayment, and total cash flow.
 def aggregate(pool_amort, pool):
     pool_sch = []
     max_term = max(loan["loan term"] for loan in pool)
@@ -102,6 +136,7 @@ def aggregate(pool_amort, pool):
                              })
     return pool_sch
     
+# wac() function calculates weighted average coupon for the pool, weighted by loan balance.
 def wac(pool):
     wac = 0 
     total = sum(loan["balance"] for loan in pool)
@@ -109,7 +144,8 @@ def wac(pool):
         weight = loan["balance"] / total
         wac = wac + (loan["rate"] * weight)
     return wac
-    
+
+# wam() function calculates weighted average maturity for the pool, weighted by loan balance.
 def wam(pool):
     wam = 0
     total = sum(loan["balance"] for loan in pool)
@@ -119,7 +155,8 @@ def wam(pool):
     return wam
 
 
-
+# pay_interest() function takes the tranches, the aggregate schedule, and the month as inputs. Distributes total interest sequentially across tranches (senior -> equity).
+# Returns the interest allocated to each tranche.
 def pay_interest(tranches, agg_pool, month):
     current_int = agg_pool[month]["interest"]
     senior_owed = tranches[0]["notional"] * (tranches[0]["coupon"]/12)
@@ -145,6 +182,8 @@ def pay_interest(tranches, agg_pool, month):
             "equity": round(equity_paid,2)
             }
 
+# loss_allocate() function takes the tranches, the aggregate schedule, and the month as inputs. Distributes total loss sequentially across tranches (equity -> senior).
+# Returns the loss allocated to each tranche.
 def loss_allocate(tranches, agg_pool, month):
     current_loss = agg_pool[month]["loss"]
     if (tranches[2]["notional"] - current_loss) >= 0:
@@ -165,7 +204,8 @@ def loss_allocate(tranches, agg_pool, month):
             "mezz": mezz_loss,
             "equity": equity_loss
             }
-
+# principal_pay() function takes the tranches, the aggregate schedule, and the month as inputs. Distributes total principal, recovery, and prepayment sequentially across tranches (senior -> equity).
+# Returns the principal paid to each tranche.
 def principal_pay(tranches, agg_pool, month):
     current_pay = (agg_pool[month]["principal"] + agg_pool[month]["recovery"] + agg_pool[month]["prepayment"])
     if (tranches[0]["notional"]-current_pay) >= 0:
@@ -187,6 +227,9 @@ def principal_pay(tranches, agg_pool, month):
             "equity": equity_pay
             }
 
+
+# waterfall() function creates the cash flow allocations for interest, loss, and principal repayment by calling pay_interest(), loss_allocate(), and principal_pay().
+# Returns a list of monthly entries. Each entry contains the month and nested dictionaries for senior, mezz, and equity, each holding {interest, loss, principal, notional}.
 def waterfall(tranches, agg_pool):
     tranche_sch = []
     for i in range(len(agg_pool)):
@@ -209,6 +252,7 @@ def waterfall(tranches, agg_pool):
                             })
     return tranche_sch
 
+# tranche_build() creates a fresh tranche structure with starting notionals and coupons. Used to reset tranches before each waterfall run since waterfall() mutates the notional values.
 def tranche_build(agg_pool, senior_weight, mezz_weight, equity_weight):
     start_bal = agg_pool[0]["balance"]
     return [
@@ -217,6 +261,8 @@ def tranche_build(agg_pool, senior_weight, mezz_weight, equity_weight):
         {"name": "equity", "notional": equity_weight * start_bal, "coupon": 0.0}
     ]
 
+# wal() function calculates weighted average life for a given tranche. Measures the average time required to repay principal.
+# WAL = sum(month * principal[i]) / sum(principal), divided by 12 to convert from months to years.
 def wal(tranche_sch, tranche_name):
     total = 0 
     weight = 0
@@ -246,21 +292,13 @@ mezz_weight = 0.15
 equity_weight = 0.05
 
 
+#Structure to run the model
 tranches = tranche_build(agg_pool,senior_weight, mezz_weight, equity_weight)
-
 tranche_sch = waterfall(tranches, agg_pool)
-
-
 wal_s = wal(tranche_sch, "senior")
 wal_m = wal(tranche_sch, "mezz")
 wal_e = wal(tranche_sch, "equity")
 print(wal_s)
 print(wal_m)
 print(wal_e)
-
-
-#for i in range (88, 95):
- #   print(f"month: {tranche_sch[i]["month"]}")
-  #  print(f"senior: {tranche_sch[i]["senior"]["notional"]}")
-   # print(f"mezz: {tranche_sch[i]["mezz"]["notional"]}")
 
