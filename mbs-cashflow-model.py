@@ -18,7 +18,7 @@ Outputs:
     - Tranche-level cash flow schedule with interest, loss, principal, notional
     - WAL by tranche
 """
-
+#Libraries
 import csv
 
 # pmt_loan() function calculates the payment for an amortized loan. Takes inputs of balance, annual rate, frequency, and term month.
@@ -274,6 +274,40 @@ def wal(tranche_sch, tranche_name):
     wal = (weight / total)/12
     return wal
 
+# Exporting aggregated amort schedule into a CSV file
+def export_loan_sch(agg_pool):
+    with open('aggregate_pool.csv','w', newline = '') as csvfile:
+        fieldnames = list(agg_pool[0].keys())
+        w = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        w.writeheader()
+        w.writerows(agg_pool)
+        
+# Since the tranche schedule was a nested dict, this function flattens the row.
+def flatten_row(row):
+    flat = {}
+    flat["month"] = row["month"]
+    for tranche, fields in row.items():
+        if tranche == "month":
+            continue
+        for field, value in fields.items():
+            flat[tranche + "_" + field] = value
+    return flat
+
+
+# When exporting the tranche schedule to CSV the function calls flatten_row() to create a flat dictionary for every row, before exporting.
+def export_tranche(tranche_sch):
+    flat_tranche = []
+    for row in tranche_sch:
+        flat_tranche.append(flatten_row(row))
+    with open("tranche_output.csv", 'w', newline = '') as csvfile:
+        fieldnames = list(flat_tranche[0].keys())
+        w = csv.DictWriter(csvfile, fieldnames = fieldnames)
+        w.writeheader()
+        w.writerows(flat_tranche)
+                       
+        
+    
+ 
 #inputs needed for the different functions
 filename = "fannie.txt" 
 pool_id = "MA6099"
@@ -302,3 +336,5 @@ print(wal_s)
 print(wal_m)
 print(wal_e)
 
+#export_loan_sch(agg_pool)
+export_tranche(tranche_sch)
