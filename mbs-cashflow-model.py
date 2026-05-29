@@ -8,7 +8,7 @@ allocates those cash flows across a three-tranche sequential pay waterfall
 Inputs:
     - Fannie Mae loan-level data file (pipe-delimited)
     - Pool ID to filter on
-    - CDR (annual default rate), loss severity, recovery lag
+     - CDR (annual default rate), loss severity, recovery lag
     - PSA speed for prepayment assumption
     - Tranche weights and coupons
 
@@ -282,7 +282,7 @@ def export_loan_sch(agg_pool):
         w.writeheader()
         w.writerows(agg_pool)
         
-# Since the tranche schedule was a nested dict, this function flattens the row.
+# Since the tranche schedule was a nested dict, this function flattens the row, one at a time.
 def flatten_row(row):
     flat = {}
     flat["month"] = row["month"]
@@ -305,8 +305,23 @@ def export_tranche(tranche_sch):
         w.writeheader()
         w.writerows(flat_tranche)
                        
-        
+
+# Scenario analysis function to show the WAL fro each tranceh based on a range of PSA speeds.
+# The only new input would be psa_speed. 
+def psa_scenario(pool, psa_speed, freq, annual_cdr, loss_sev, recovery, senior_weight, mezz_weight, equity_weight):
+    output = []
     
+    for speed in psa_speed:
+        loan_schedule = amort_each(pool, freq, annual_cdr, loss_sev, recovery, speed)
+        pool_schedule = aggregate(loan_schedule, pool)
+        new_tranche = tranche_build(pool_schedule, senior_weight, mezz_weight, equity_weight)
+        pool_waterfall = waterfall(new_tranche, pool_schedule)
+        output.append({"psa speed": speed, 
+                        "senior_wal": wal(pool_waterfall, "senior"),
+                        "mezz_wal": wal(pool_waterfall, "mezz"), 
+                        "equity_wal": wal(pool_waterfall, "equity")
+                        })
+    return output
  
 #inputs needed for the different functions
 filename = "fannie.txt" 
@@ -325,6 +340,7 @@ senior_weight = 0.8
 mezz_weight = 0.15
 equity_weight = 0.05
 
+psa_speed = [50, 100, 150, 200, 250, 300]
 
 #Structure to run the model
 tranches = tranche_build(agg_pool,senior_weight, mezz_weight, equity_weight)
@@ -332,9 +348,14 @@ tranche_sch = waterfall(tranches, agg_pool)
 wal_s = wal(tranche_sch, "senior")
 wal_m = wal(tranche_sch, "mezz")
 wal_e = wal(tranche_sch, "equity")
-print(wal_s)
-print(wal_m)
-print(wal_e)
+
 
 #export_loan_sch(agg_pool)
-export_tranche(tranche_sch)
+#export_tranche(tranche_sch)
+
+# Calling the PSA Scenarios function and Printing out to console as a table.
+scenario_analysis = psa_scenario(load_pool, psa_speed, freq, annual_cdr, loss_sev, recovery, senior_weight, mezz_weight, equity_weight)
+print(f"{'PSA SPEED':<12}{'SENIOR WAL':<14}{'MEZZ WAL':<12}{'EQUITY WAL'}")
+for row in scenario_analysis:
+    print(f"{row['psa speed']:<12.2f}{row['senior_wal']:<14.2f}{row['mezz_wal']:<12.2f}{row['equity_wal']:.2f}")
+    
