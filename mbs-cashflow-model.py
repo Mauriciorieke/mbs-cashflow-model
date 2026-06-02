@@ -20,6 +20,8 @@ Outputs:
 """
 #Libraries
 import csv
+from scipy.optimize import brentq
+
 
 # pmt_loan() function calculates the payment for an amortized loan. Takes inputs of balance, annual rate, frequency, and term month.
 def pmt_loan(balance, annual_rate, freq, term_month):
@@ -322,7 +324,51 @@ def psa_scenario(pool, psa_speed, freq, annual_cdr, loss_sev, recovery, senior_w
                         "equity_wal": wal(pool_waterfall, "equity")
                         })
     return output
- 
+
+'''
+Valuation Functions: PV, price, yield, duration, and convexity per tranche.
+pv_tranche() discounts monthly cash flows (interest + principal - loss) at a flat annual rate.
+price() calls pv_tranche() and expresses the result as a percentage of starting notional.
+yield_cal() uses scipy brentq to solve for the rate that matches a given market price.
+duration() and convex() use a 10 bps symmetric shock to approximate modified duration and convexity.
+'''
+def pv_tranche(tranche_sch, name, dr):
+    disc_cfs = 0
+    freq = 12
+    for entry in tranche_sch:
+        month = entry["month"]
+        cf = entry[name]["interest"] + entry[name]["principal"] - entry[name]["loss"]
+        disc_cfs = disc_cfs + (cf/(1 + (dr/freq)) ** month)
+    return disc_cfs
+
+def price(tranche_sch, name, dr):
+    pv = pv_tranche(tranche_sch, name, dr)
+    notional = tranche_sch[0][name]["notional"] + tranche_sch[0][name]["principal"] + tranche_sch[0][name]["loss"]
+    price = (pv / notional) * 100
+    return price
+
+def yield_cal(tranche_sch, name, mark_price):
+    def diff(rate):
+        price_diff = price(tranche_sch, name, rate)
+        return price_diff - mark_price
+    return brentq(diff, 0.0001, 0.99)    
+
+def duration(tranche_sch, name, dr):
+    delta_y = 0.001
+    p0 = price(tranche_sch, name, dr)
+    p_up = price(tranche_sch, name, dr - delta_y)
+    p_down = price(tranche_sch, name, dr + delta_y)
+    dur = (p_up - p_down)/(2 * delta_y * p0)
+    return dur
+
+def convex(tranche_sch, name, dr):
+    delta_y = 0.001
+    p0 = price(tranche_sch, name, dr)
+    p_up = price(tranche_sch, name, dr - delta_y)
+    p_down = price(tranche_sch, name, dr + delta_y)
+    con = ((p_up + p_down) - (2 * p0))/(p0 * delta_y ** 2)
+    return con
+
 #inputs needed for the different functions
 filename = "fannie.txt" 
 pool_id = "MA6099"
@@ -339,23 +385,50 @@ wam_pool = wam(load_pool)
 senior_weight = 0.8
 mezz_weight = 0.15
 equity_weight = 0.05
-
-psa_speed = [50, 100, 150, 200, 250, 300]
+psa_speeds = [50, 100, 150, 200, 250, 300]
+dr = 0.05
 
 #Structure to run the model
 tranches = tranche_build(agg_pool,senior_weight, mezz_weight, equity_weight)
 tranche_sch = waterfall(tranches, agg_pool)
-wal_s = wal(tranche_sch, "senior")
-wal_m = wal(tranche_sch, "mezz")
-wal_e = wal(tranche_sch, "equity")
 
-
-#export_loan_sch(agg_pool)
-#export_tranche(tranche_sch)
+export_loan_sch(agg_pool)
+export_tranche(tranche_sch)
 
 # Calling the PSA Scenarios function and Printing out to console as a table.
-scenario_analysis = psa_scenario(load_pool, psa_speed, freq, annual_cdr, loss_sev, recovery, senior_weight, mezz_weight, equity_weight)
+scenario_analysis = psa_scenario(load_pool, psa_speeds, freq, annual_cdr, loss_sev, recovery, senior_weight, mezz_weight, equity_weight)
 print(f"{'PSA SPEED':<12}{'SENIOR WAL':<14}{'MEZZ WAL':<12}{'EQUITY WAL'}")
 for row in scenario_analysis:
     print(f"{row['psa speed']:<12.2f}{row['senior_wal']:<14.2f}{row['mezz_wal']:<12.2f}{row['equity_wal']:.2f}")
     
+
+# Calling all the valuation functions to print.
+senior_dcf = pv_tranche(tranche_sch, "senior", dr)
+mezz_dcf = pv_tranche(tranche_sch, "mezz", dr)
+equity_dcf = pv_tranche(tranche_sch, "equity", dr)
+
+senior_price = price(tranche_sch, "senior", dr)
+mezz_price = price(tranche_sch, "mezz", dr)
+equity_price = price(tranche_sch, "equity", dr)
+
+senior_yld = yield_cal(tranche_sch, "senior", 100)
+mezz_yld = yield_cal(tranche_sch, "mezz", 100)
+equity_yld = yield_cal(tranche_sch, "equity", 100)
+
+senior_dur = duration(tranche_sch, "senior", dr)
+mezz_dur = duration(tranche_sch, "mezz", dr)
+equity_dur = duration(tranche_sch, "equity", dr) 
+
+senior_con = convex(tranche_sch, "senior", dr)
+mezz_con = convex(tranche_sch, "mezz", dr)
+equity_con = convex(tranche_sch, "equity", dr) 
+ 
+# Prints all the valuation metrics into a table based on tranche cleanly into the console.
+print()
+print(f"{'':<12}{'SENIOR':<14}{'MEZZ':<12}{'EQUITY'}")
+print(f"{'DCFs':<12}{senior_dcf:<14.2f}{mezz_dcf:<12.2f}{equity_dcf:.2f}")
+print(f"{'Price':<12}{senior_price:<14.2f}{mezz_price:<12.2f}{equity_price:.2f}")
+print(f"{'Yield':<12}{senior_yld:<14.2%}{mezz_yld:<12.2%}{equity_yld:.2%}")
+print(f"{'Duration':<12}{senior_dur:<14.2f}{mezz_dur:<12.2f}{equity_dur:.2f}")
+print(f"{'Convexity':<12}{senior_con:<14.2f}{mezz_con:<12.2f}{equity_con:.2f}")
+
