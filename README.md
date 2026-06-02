@@ -54,6 +54,8 @@ and calculate tranche-level valuation metrics.
 - `convex()` calculates approximate convexity using a 10 bps symmetric shock
 
 ## Sample Output
+
+```
 PSA SPEED   SENIOR WAL    MEZZ WAL    EQUITY WAL
 50.00       4.13          8.82        9.82
 100.00      3.77          8.51        9.75
@@ -68,6 +70,7 @@ Price       100.00        106.91      146.37
 Yield       5.00%         6.00%       12.73%
 Duration    3.34          6.73        5.47
 Convexity   15.67         53.05       44.36
+```
 
 ## Future work
 
