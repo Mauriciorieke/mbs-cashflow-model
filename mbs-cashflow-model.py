@@ -194,7 +194,7 @@ def loss_allocate(tranches, agg_pool, month):
         equity_loss = tranches[2]["notional"]
     current_loss = current_loss - equity_loss
     
-    if (tranches[1]["notional"] - current_loss) >= 0:
+    if (tranches[1]["notional"] - current_loss) >= 0: 
         mezz_loss = current_loss
     else:
         mezz_loss = tranches[1]["notional"]
@@ -278,7 +278,7 @@ def wal(tranche_sch, tranche_name):
 
 # Exporting aggregated amort schedule into a CSV file
 def export_loan_sch(agg_pool):
-    with open('aggregate_pool.csv','w', newline = '') as csvfile:
+    with open('aggregate_pool_8.csv','w', newline = '') as csvfile:
         fieldnames = list(agg_pool[0].keys())
         w = csv.DictWriter(csvfile, fieldnames=fieldnames)
         w.writeheader()
@@ -307,9 +307,10 @@ def export_tranche(tranche_sch):
         w.writeheader()
         w.writerows(flat_tranche)
                        
-
-# Scenario analysis function to show the WAL fro each tranceh based on a range of PSA speeds.
-# The only new input would be psa_speed. 
+'''
+Scenario analysis function to show the WAL fro each tranceh based on a range of PSA speeds.
+The only new input would be psa_speed. 
+'''
 def psa_scenario(pool, psa_speed, freq, annual_cdr, loss_sev, recovery, senior_weight, mezz_weight, equity_weight):
     output = []
     
@@ -378,6 +379,7 @@ loss_sev = 0.3
 recovery = 12
 psa_speed = 100
 load_pool = pool_loader(filename, pool_id)
+print(f"Number of loans: {len(load_pool)}")
 amort_pool = amort_each(load_pool, freq, annual_cdr, loss_sev, recovery, psa_speed)
 agg_pool = aggregate(amort_pool, load_pool)
 wac_pool = wac(load_pool)
@@ -392,9 +394,11 @@ dr = 0.05
 tranches = tranche_build(agg_pool,senior_weight, mezz_weight, equity_weight)
 tranche_sch = waterfall(tranches, agg_pool)
 
-export_loan_sch(agg_pool)
-export_tranche(tranche_sch)
+# Calls function to export data to the CSVs
+#export_loan_sch(agg_pool)
+#export_tranche(tranche_sch)
 
+'''
 # Calling the PSA Scenarios function and Printing out to console as a table.
 scenario_analysis = psa_scenario(load_pool, psa_speeds, freq, annual_cdr, loss_sev, recovery, senior_weight, mezz_weight, equity_weight)
 print(f"{'PSA SPEED':<12}{'SENIOR WAL':<14}{'MEZZ WAL':<12}{'EQUITY WAL'}")
@@ -426,9 +430,19 @@ equity_con = convex(tranche_sch, "equity", dr)
 # Prints all the valuation metrics into a table based on tranche cleanly into the console.
 print()
 print(f"{'':<12}{'SENIOR':<14}{'MEZZ':<12}{'EQUITY'}")
-print(f"{'DCFs':<12}{senior_dcf:<14.2f}{mezz_dcf:<12.2f}{equity_dcf:.2f}")
+print(f"{'DCFs':<12}{senior_dcf:<18.2f}{mezz_dcf:<18.2f}{equity_dcf:.2f}")
 print(f"{'Price':<12}{senior_price:<14.2f}{mezz_price:<12.2f}{equity_price:.2f}")
 print(f"{'Yield':<12}{senior_yld:<14.2%}{mezz_yld:<12.2%}{equity_yld:.2%}")
 print(f"{'Duration':<12}{senior_dur:<14.2f}{mezz_dur:<12.2f}{equity_dur:.2f}")
 print(f"{'Convexity':<12}{senior_con:<14.2f}{mezz_con:<12.2f}{equity_con:.2f}")
+'''
+'''
+for i in range(12):
+    print(round(agg_pool[i]["interest"],2))
+    print(round(agg_pool[i]["default"],2))
+    print(round(agg_pool[i]["principal"],2))
+    print(round(agg_pool[i]["prepayment"],2))
+'''
 
+
+export_loan_sch(amort_pool[8])

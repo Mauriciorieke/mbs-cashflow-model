@@ -84,3 +84,21 @@ Convexity   15.67         53.05       44.36
 Built as a learning project to deepen understanding of agency MBS structure,
 prepayment modeling, securitization waterfalls, and fixed income valuation.
 Companion piece to a CLO waterfall model built in Excel.
+
+## Corrections in v2
+
+While rebuilding the model with NumPy, two simplifications in v1 were identified and corrected. 
+
+1. **Remaining term vs. original term** v1 amortized every loan over its original Loan Term.
+Where as in v2, I amortize over Remaining Months to Maturity, so seasoned loans are scheduled over
+ the time they actually have left. This produces the correct monthly payment for loans that are not brand new.
+
+2. **Loss recognition past maturity** Losses and recoveries lag defaults by the recovery lag (12 months). For v1 each 
+loan's schedule ended at its maturity month, which shortened the loss/recovery tail for any defaults occurring in a 
+loan's final year. v2 carries this tail through, recognizing those losses and recoveries on the correct lagged timing 
+even after the loan's scheduled payments end, since the default has already occurred and the loss is real.
+
+**Effect on tranche cash flows** Because the missed tail contained both recoveries (principal, paid top-down) 
+and losses (write-downs, absorbed bottom-up), the correction is not a wash. Capturing the full tail means 
+senior and mezzanine pay down slightly faster (more recovered principal flows to them) and equity absorbs 
+slightly more loss (more write-downs reach the bottom of the stack). v1's truncation had understated both, marginally flattering the structure.
