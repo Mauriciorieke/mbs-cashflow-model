@@ -8,6 +8,7 @@ Vectorized amortization engine complete. Aggregation, waterfall, and valuation t
 """
 import numpy as np
 import pandas as pd
+from scipy.optimize import brentq
 
 # Read Fannie File, pipe delimited
 df = pd.read_csv("fannie.txt", sep = "|", low_memory=False)
@@ -20,11 +21,13 @@ df = df[df["Security Identifier"] == pool_id]
 balance = df["Current Investor Loan UPB"].to_numpy()
 rate = df["Current Interest Rate"].to_numpy() / 100
 terms = df["Remaining Months to Maturity"].to_numpy()
+
 '''
 I decied to use Remaining Months to Maturity, not original Loan Term. So that seasoned
 loans amortize over the months they actually have left rather than a
 full original term. (v1 used original Loan Term, which slightly
 misstated the payment on already-seasoned loans.)
+terms = df["Loan Term"].to_numpy()
 '''
 
 
@@ -52,11 +55,13 @@ def psa(month, psa_speed):
 n_loans = len(balance)
 n_month = terms.max()
 annual_cdr = 0.005
-month_cdr = np.full((n_loans,), (annual_cdr / 12))
 lag = 12
 loss_sev = 0.3
 psa_speed = 100
 
+
+
+month_cdr = np.full((n_loans,), (annual_cdr / 12))
 beg_bal = np.zeros([n_loans,n_month])
 interest_matrix = np.zeros([n_loans, n_month])
 principal_matrix = np.zeros([n_loans, n_month])
@@ -158,5 +163,77 @@ for month in range(n_month):
     
     tranche_output[[sr_not, mz_not, eq_not], month] = running_val
     
- 
-    
+
+def export(tranche): #
+    t = tranche.T
+    df = pd.DataFrame(t, columns=["sr_int", "sr_loss",
+                                  "sr_prin", "sr_not",
+                                  "mz_int", "mz_loss",
+                                  "mz_prin", "mz_not",
+                                  "eq_int", "eq_loss",
+                                  "eq_prin", "eq_not"])
+    df.to_csv('output.csv')
+
+
+#Valuation (pv to price to yield to dur to convex)
+disc_rate = 0.05
+market_price = np.full((3,), 100)    
+
+def wal(tranche_output):
+    weight = np.zeros((3,))
+    sr = sum(tranche_output[sr_prin,:])
+    mz = sum(tranche_output[mz_prin,:])
+    eq = sum(tranche_output[eq_prin,:])
+    totals = np.array((sr, mz, eq))
+    for m in range(n_month):
+        pi = np.array((tranche_output[sr_prin, m], tranche_output[mz_prin, m], tranche_output[eq_prin, m])) 
+        weight += (m + 1) * pi
+    wal = (weight / totals) / 12
+    return wal
+
+def pv(tranche_output, disc_rate):
+    disc = np.zeros((3,)) 
+    for month in range(n_month):
+        sr_cf = tranche_output[sr_int, month] + tranche_output[sr_prin, month] - tranche_output[sr_loss, month]
+        mz_cf = tranche_output[mz_int, month] + tranche_output[mz_prin, month] - tranche_output[mz_loss, month]
+        eq_cf = tranche_output[eq_int, month] + tranche_output[eq_prin, month] - tranche_output[eq_loss, month]        
+        cfs = np.array((sr_cf, mz_cf, eq_cf))
+        disf = (1+(disc_rate / 12)) ** -(month + 1)
+        disc += (disf * cfs)
+    return disc
+
+def price(tranche_output, disc_rate):
+    value = pv(tranche_output, disc_rate)
+    notionals =  np.array((tranche_output[sr_not,0], tranche_output[mz_not,0], tranche_output[eq_not,0]))
+    price = (value / notionals) * 100 
+    return price 
+
+def yield_cal(tranche_output, market_p):
+    yields = np.zeros((3,))
+    for i in range(3):
+        diff = lambda rate, i=i: price(tranche_output, rate)[i] - market_p[i] #Not fully understanding the Late binding i=i
+        yields[i] = brentq(diff, 0.0001, 0.99)
+    return yields
+
+def duration(tranche_output, disc_rate):
+    delta_y = 0.001
+    num = price(tranche_output, disc_rate - delta_y) - price(tranche_output, disc_rate + delta_y)
+    dem = 2 * delta_y * price(tranche_output, disc_rate)
+    duration = num / dem
+    return duration
+
+def convexity(tranche_output, disc_rate):
+    delta_y = 0.001
+    num = (price(tranche_output, disc_rate - delta_y) + price(tranche_output, disc_rate + delta_y)) - (2 * price(tranche_output, disc_rate))
+    dem = delta_y ** 2 * price(tranche_output, disc_rate)
+    convex = num / dem
+    return convex
+
+
+# End of Valuation Metrics functions
+pres = pv(tranche_output, disc_rate)
+pric = price(tranche_output, disc_rate)
+yld = yield_cal(tranche_output, market_price)
+dur = duration(tranche_output, disc_rate)
+conve = convexity(tranche_output, disc_rate)
+wals = wal(tranche_output)

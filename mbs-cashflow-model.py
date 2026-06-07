@@ -404,6 +404,7 @@ scenario_analysis = psa_scenario(load_pool, psa_speeds, freq, annual_cdr, loss_s
 print(f"{'PSA SPEED':<12}{'SENIOR WAL':<14}{'MEZZ WAL':<12}{'EQUITY WAL'}")
 for row in scenario_analysis:
     print(f"{row['psa speed']:<12.2f}{row['senior_wal']:<14.2f}{row['mezz_wal']:<12.2f}{row['equity_wal']:.2f}")
+'''
     
 
 # Calling all the valuation functions to print.
@@ -435,7 +436,8 @@ print(f"{'Price':<12}{senior_price:<14.2f}{mezz_price:<12.2f}{equity_price:.2f}"
 print(f"{'Yield':<12}{senior_yld:<14.2%}{mezz_yld:<12.2%}{equity_yld:.2%}")
 print(f"{'Duration':<12}{senior_dur:<14.2f}{mezz_dur:<12.2f}{equity_dur:.2f}")
 print(f"{'Convexity':<12}{senior_con:<14.2f}{mezz_con:<12.2f}{equity_con:.2f}")
-'''
+
+
 '''
 for i in range(12):
     print(round(agg_pool[i]["interest"],2))
@@ -445,4 +447,3 @@ for i in range(12):
 '''
 
 
-export_loan_sch(amort_pool[8])
