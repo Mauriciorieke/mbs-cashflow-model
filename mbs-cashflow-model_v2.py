@@ -91,18 +91,26 @@ Losses and recoveries lag defaults by the recovery lag (12 months).
 A loan's final-year defaults therefore realize losses/recoveries AFTER 
 its scheduled maturity. I intentionally let this tail run past maturity
 rather than masking it with `alive`, since the default already occurred
-and the loss/recovery is real regardless of the loan's payment end date.
-'''
+and the loss/recovery is real regardless of the loan's payment end date.'''
+   
+pool_begbal = np.sum(beg_bal, axis=0)
+pool_int = np.sum(interest_matrix, axis=0)
+pool_principal = np.sum(principal_matrix, axis=0)
+pool_default = np.sum(default_matrix, axis=0)
+pool_prepay = np.sum(prepay_matrix, axis=0)
+pool_loss = np.sum(loss_matrix, axis=0)
+pool_recovery = np.sum(recovery_matrix, axis=0)
+pool_endbal = np.sum(end_bal, axis=0)
 
-# Dont need th[:,:]    
-pool_begbal = np.sum(beg_bal[:,:], axis=0)
-pool_int = np.sum(interest_matrix[:,:], axis=0)
-pool_principal = np.sum(principal_matrix[:,:], axis=0)
-pool_default = np.sum(default_matrix[:,:], axis=0)
-pool_prepay = np.sum(prepay_matrix[:,:], axis=0)
-pool_loss = np.sum(loss_matrix[:,:], axis=0)
-pool_recovery = np.sum(recovery_matrix[:,:], axis=0)
-pool_endbal = np.sum(end_bal[:,:], axis=0)
+agg_pool = np.vstack((pool_begbal, pool_default,
+                     pool_prepay, pool_int,
+                     pool_principal, pool_loss,
+                     pool_recovery, pool_endbal)
+                     ).T
+'''Creates a Matrix for the aggregated pool amortization
+Uses vstack then ".T" to transpose the matrix to have months as rows
+This is mainly to create a matrix to export to CSV'''
+
 
 
 # iteration for waterfall tranching - run through month 
@@ -164,15 +172,25 @@ for month in range(n_month):
     tranche_output[[sr_not, mz_not, eq_not], month] = running_val
     
 
-def export(tranche): #
+
+def export_pool(agg_pool): # Exports the Pool amortization schedule
+    df = pd.DataFrame(agg_pool, columns=["Beginning Balance", "Default",
+                                  "Prepayment", "Interest",
+                                  "Principal", "loss",
+                                  "Recovery", "End Balance"
+                                  ])
+    df.to_csv('pool_output.csv')
+
+def export_tranche(tranche): #
     t = tranche.T
-    df = pd.DataFrame(t, columns=["sr_int", "sr_loss",
+    df_1 = pd.DataFrame(t, columns=["sr_int", "sr_loss",
                                   "sr_prin", "sr_not",
                                   "mz_int", "mz_loss",
                                   "mz_prin", "mz_not",
                                   "eq_int", "eq_loss",
-                                  "eq_prin", "eq_not"])
-    df.to_csv('output.csv')
+                                  "eq_prin", "eq_not"
+                                  ])
+    df_1.to_csv('output.csv')
 
 
 #Valuation (pv to price to yield to dur to convex)
