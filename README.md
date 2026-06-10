@@ -1,22 +1,26 @@
 # MBS Cash Flow Model
 
-A Python implementation of a mortgage-backed security cash flow model with prepayment,
-default, and three-tranche sequential pay waterfall logic.
-Built to project monthly cash flows on a Fannie Mae single-family loan pool,
-allocate those cash flows to senior, mezzanine, and equity tranches,
-and calculate tranche-level valuation metrics.
+A Python implementation of a mortgage-backed security cash flow model with prepayment, default, and three-tranche sequential pay waterfall logic. Built to project monthly cash flows on a Fannie Mae single-family loan pool, allocate those cash flows to senior, mezzanine, and equity tranches, and calculate tranche-level valuation metrics.
+
+This repository contains two implementations. v1 is a pure-Python version that builds the logic from first principles, looping over individual loans. v2 is a vectorized rewrite using NumPy and pandas that processes the entire loan pool as matrices, running much faster on full-size pools while producing the same results, with two corrections noted below.
 
 ## What it does
 
 - Loads loan data from Fannie Mae's public single-family loan dataset, [Pooltalk](https://fanniemae.mbs-securities.com/fannie)
-- Amortizes each loan individually with monthly default (CDR) and prepayment (PSA) assumptions
-- Aggregates loan-level cash flows into pool level totals
-- Runs cash flows through a three tranche sequential pay waterfall
+- Amortizes the loan pool with monthly default (CDR) and prepayment (PSA) assumptions
+- Aggregates loan-level cash flows into pool-level totals
+- Runs cash flows through a three-tranche sequential pay waterfall
 - Allocates interest, losses, and principal across tranches with proper subordination
 - Calculates weighted average life (WAL) per tranche
 - Exports pool and tranche schedules to CSV
 - Runs PSA scenario analysis across multiple prepayment speeds and outputs a WAL table by tranche
 - Calculates tranche-level PV, price, yield, modified duration, and convexity
+
+## Implementation
+
+v1 (pure Python) loops over each loan individually, building per-loan amortization schedules and aggregating them. Clear and readable, but slow on large pools.
+
+v2 (NumPy / pandas) loads and filters the data with pandas, then holds the whole pool as NumPy matrices with loans as rows and months as columns. Instead of looping over every loan, it loops only over the months and does the math for all loans at once with array operations. An "alive" mask handles loans that mature partway through. The aggregation is just summing each matrix down the loan axis. The waterfall is still a month-by-month loop since the tranche payments have to go in order, but it runs on the already-aggregated pool vectors so it is fast. On a roughly 6,000-loan pool, v2 runs much faster than v1.
 
 ## Key assumptions
 
@@ -34,71 +38,36 @@ and calculate tranche-level valuation metrics.
 - Tranche weights and coupons
 - Discount rate for valuation
 
-## Structure
+## Structure (v2)
 
-- `psa()` calculates monthly CPR given PSA speed
-- `amort_default()` builds the amortization schedule for a single loan
-- `amort_each()` runs amortization across the full pool
-- `aggregate()` rolls loan level results up to pool level
-- `wac()` and `wam()` calculate pool level weighted average coupon and maturity
-- `pay_interest()`, `loss_allocate()`, `principal_pay()` handle the per-month waterfall logic
-- `waterfall()` ties it all together and produces the tranche schedule
-- `wal()` calculates weighted average life for a given tranche
-- `flatten_row()` and `export_tranche()` handle CSV export of the tranche schedule
-- `export_loan_sch()` handles CSV export of the pool schedule
-- `psa_scenario()` runs the full model across a list of PSA speeds and returns WAL by tranche
-- `pv_tranche()` discounts tranche cash flows at a flat annual rate
+- `pmt_loan()` computes the monthly payment, vectorized across all loans
+- `psa()` returns the monthly SMM from a PSA speed and month
+- `amortization()` runs the full vectorized pool amortization and returns aggregated pool cash flow vectors
+- `waterfall()` allocates interest, losses, and principal across the three tranches month by month
+- `wal()` calculates weighted average life per tranche
+- `pv()` discounts tranche cash flows at a flat annual rate
 - `price()` expresses tranche PV as a percentage of starting notional
-- `yield_cal()` solves for the yield that equates calculated price to a given market price
-- `duration()` calculates approximate modified duration using a 10 bps symmetric shock
-- `convex()` calculates approximate convexity using a 10 bps symmetric shock
-
-## Sample Output
-
-```
-PSA SPEED   SENIOR WAL    MEZZ WAL    EQUITY WAL
-50.00       4.13          8.82        9.82
-100.00      3.77          8.51        9.75
-150.00      3.46          8.16        9.66
-200.00      3.20          7.78        9.54
-250.00      2.98          7.39        9.39
-300.00      2.78          6.99        9.20
-
-            SENIOR        MEZZ        EQUITY
-DCFs        6149599.99    1232779.37  562581.10
-Price       100.00        106.91      146.37
-Yield       5.00%         6.00%       12.73%
-Duration    3.34          6.73        5.47
-Convexity   15.67         53.05       44.36
-```
-
-## Future work
-
-- Convert to pandas and NumPy for performance on larger pools
-- Add Monte Carlo simulation treating CDR and PSA as random variables
-- Add CDR scenario analysis alongside PSA stress testing
-- Build a visualization layer using Streamlit or Tableau
-
-## About
-
-Built as a learning project to deepen understanding of agency MBS structure,
-prepayment modeling, securitization waterfalls, and fixed income valuation.
-Companion piece to a CLO waterfall model built in Excel.
+- `yield_cal()` solves per tranche for the yield matching a target price (scipy brentq)
+- `duration()` and `convexity()` use a 10 bps symmetric shock to approximate modified duration and convexity
+- `psa_scenario()` runs the full model across a list of PSA speeds and returns WAL by tranche
+- `export_pool()` and `export_tranche()` write the pool and tranche schedules to CSV
 
 ## Corrections in v2
 
-While rebuilding the model with NumPy, two simplifications in v1 were identified and corrected. 
+While rebuilding the model with NumPy, two simplifications in v1 were identified and corrected.
 
-1. **Remaining term vs. original term** v1 amortized every loan over its original Loan Term.
-Where as in v2, I amortize over Remaining Months to Maturity, so seasoned loans are scheduled over
- the time they actually have left. This produces the correct monthly payment for loans that are not brand new.
+1. Remaining term vs. original term. v1 amortized every loan over its original Loan Term. v2 amortizes over Remaining Months to Maturity, so seasoned loans are scheduled over the time they actually have left. This produces the correct monthly payment for loans that are not brand new.
 
-2. **Loss recognition past maturity** Losses and recoveries lag defaults by the recovery lag (12 months). For v1 each 
-loan's schedule ended at its maturity month, which shortened the loss/recovery tail for any defaults occurring in a 
-loan's final year. v2 carries this tail through, recognizing those losses and recoveries on the correct lagged timing 
-even after the loan's scheduled payments end, since the default has already occurred and the loss is real.
+2. Loss recognition past maturity. Losses and recoveries lag defaults by the recovery lag (12 months). In v1, each loan's schedule ended at its maturity month, which truncated the loss/recovery tail for defaults occurring in a loan's final year. v2 carries this tail through, recognizing those losses and recoveries on the correct lagged timing even after the loan's scheduled payments end, since the default has already occurred and the loss is real.
 
-**Effect on tranche cash flows** Because the missed tail contained both recoveries (principal, paid top-down) 
-and losses (write-downs, absorbed bottom-up), the correction is not a wash. Capturing the full tail means 
-senior and mezzanine pay down slightly faster (more recovered principal flows to them) and equity absorbs 
-slightly more loss (more write-downs reach the bottom of the stack). v1's truncation had understated both, marginally flattering the structure.
+Effect on tranche cash flows. Because the missed tail contained both recoveries (principal, paid top-down) and losses (write-downs, absorbed bottom-up), the correction is not a wash. Capturing the full tail means senior and mezzanine pay down slightly faster, and equity absorbs slightly more loss. v1's truncation understated both, marginally flattering the structure.
+
+## Future work
+
+- Add Monte Carlo simulation treating CDR and PSA as random variables
+- Add CDR scenario analysis alongside PSA stress testing
+- Build an interactive visualization layer using Streamlit or Tableau
+
+## About
+
+Built as a learning project to deepen understanding of agency MBS structure, prepay
